@@ -1,0 +1,46 @@
+services:
+  webhook-buffer:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_PORT=8080
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - POSTGRES_CONN_STRING=postgres://webhook:webhook123@postgres:5432/webhook_buffer?sslmode=disable
+      - ONEC_BASE_URL=http://onec:8081
+      - ONEC_USERNAME=admin
+      - ONEC_PASSWORD=password
+      - WORKER_BATCH_SIZE=10
+      - WORKER_POLL_INTERVAL=1s
+      - WORKER_MAX_RETRIES=5
+      - WORKER_CACHE_TTL=5m
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  redis:
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:14-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=webhook_buffer
+      - POSTGRES_USER=webhook
+      - POSTGRES_PASSWORD=webhook123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:

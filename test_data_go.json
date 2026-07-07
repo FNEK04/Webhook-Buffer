@@ -1,0 +1,71 @@
+[
+  {
+    "event": "order.created",
+    "timestamp": "2026-07-07T20:15:30Z",
+    "payload": {
+      "order_id": "WEB-99812",
+      "status": "new",
+      "payment_status": "paid",
+      "payment_method": "card_online",
+      "customer": {
+        "phone": "+79991234567",
+        "email": "ivanov.i@example.ru",
+        "first_name": "Иван",
+        "last_name": "Иванов"
+      },
+      "delivery": {
+        "method": "cdek",
+        "address": "г. Москва, ул. Ленина, д. 10, кв. 25",
+        "cost": 350.00
+      },
+      "items": [
+        {
+          "sku": "SKU-DIR-412",
+          "name": "Дрель-шуруповерт аккумуляторная Bosch GSR 120-LI",
+          "quantity": 1,
+          "price": 6490.00,
+          "discount": 490.00
+        },
+        {
+          "sku": "SKU-BIT-012",
+          "name": "Набор бит Bosch 25 шт.",
+          "quantity": 2,
+          "price": 950.00,
+          "discount": 0.00
+        }
+      ],
+      "total_amount": 7900.00
+    }
+  },
+  {
+    "event": "order.created",
+    "timestamp": "2026-07-07T20:16:12Z",
+    "payload": {
+      "order_id": "WEB-99813",
+      "status": "new",
+      "payment_status": "pending",
+      "payment_method": "cash_on_delivery",
+      "customer": {
+        "phone": "+79009876543",
+        "email": "petrov_a@example.ru",
+        "first_name": "Алексей",
+        "last_name": "Петров"
+      },
+      "delivery": {
+        "method": "pickup",
+        "address": "Пункт выдачи: г. Санкт-Петербург, Невский пр-кт, 15",
+        "cost": 0.00
+      },
+      "items": [
+        {
+          "sku": "SKU-GLV-005",
+          "name": "Перчатки рабочие х/б с ПВХ покрытием",
+          "quantity": 10,
+          "price": 45.00,
+          "discount": 0.00
+        }
+      ],
+      "total_amount": 450.00
+    }
+  }
+]

@@ -1,0 +1,31 @@
+{
+  "event": "order.created",
+  "timestamp": "2026-07-07T20:15:30Z",
+  "payload": {
+    "order_id": "WEB-99812",
+    "status": "new",
+    "payment_status": "paid",
+    "payment_method": "card_online",
+    "customer": {
+      "phone": "+79991234567",
+      "email": "ivanov.i@example.ru",
+      "first_name": "Ivan",
+      "last_name": "Ivanov"
+    },
+    "delivery": {
+      "method": "cdek",
+      "address": "Moscow, Lenina 10",
+      "cost": 350.00
+    },
+    "items": [
+      {
+        "sku": "SKU-DIR-412",
+        "name": "Drill Bosch",
+        "quantity": 1,
+        "price": 6490.00,
+        "discount": 490.00
+      }
+    ],
+    "total_amount": 7900.00
+  }
+}
