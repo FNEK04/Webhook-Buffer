@@ -33,7 +33,7 @@ type Customer struct {
 type Delivery struct {
 	Method string  `json:"method" binding:"required"`
 	Address string `json:"address" binding:"required"`
-	Cost   float64 `json:"cost" binding:"required,min=0"`
+	Cost   float64 `json:"cost" binding:"min=0"`
 }
 
 // Item represents order item
@@ -42,7 +42,7 @@ type Item struct {
 	Name     string  `json:"name" binding:"required"`
 	Quantity int     `json:"quantity" binding:"required,min=1"`
 	Price    float64 `json:"price" binding:"required,min=0"`
-	Discount float64 `json:"discount" binding:"required,min=0"`
+	Discount float64 `json:"discount" binding:"min=0"`
 }
 
 // QueueItem represents item in Redis queue

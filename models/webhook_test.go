@@ -96,3 +96,46 @@ func TestInventoryCache_Creation(t *testing.T) {
 		t.Errorf("Expected price 9.99, got %f", cache.Price)
 	}
 }
+
+func TestWebhook_ZeroValues(t *testing.T) {
+	// Test that zero values for Discount and Delivery.Cost are valid (WB-3)
+	webhook := Webhook{
+		Event:     "order.created",
+		Timestamp: time.Now(),
+		Payload: Payload{
+			OrderID:       "TEST-ZERO",
+			Status:        "new",
+			PaymentStatus: "paid",
+			PaymentMethod: "card",
+			Customer: Customer{
+				Phone:     "+79991234567",
+				Email:     "test@test.com",
+				FirstName: "Test",
+				LastName:  "User",
+			},
+			Delivery: Delivery{
+				Method:  "pickup",
+				Address: "Test address",
+				Cost:    0, // Zero cost should be valid
+			},
+			Items: []Item{
+				{
+					SKU:      "SKU-001",
+					Name:     "Test Item",
+					Quantity: 1,
+					Price:    100,
+					Discount: 0, // Zero discount should be valid
+				},
+			},
+			TotalAmount: 100,
+		},
+	}
+
+	if webhook.Payload.Delivery.Cost != 0 {
+		t.Errorf("Expected cost 0, got %f", webhook.Payload.Delivery.Cost)
+	}
+
+	if webhook.Payload.Items[0].Discount != 0 {
+		t.Errorf("Expected discount 0, got %f", webhook.Payload.Items[0].Discount)
+	}
+}
