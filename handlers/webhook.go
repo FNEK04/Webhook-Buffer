@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	stdlog "log"
 	"net/http"
 	"time"
 
@@ -40,20 +41,22 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 		ReceivedAt: time.Now(),
 	}
 
-	if err := h.pgService.LogWebhook(log, webhook); err != nil {
+	webhookID, err := h.pgService.LogWebhook(log, webhook)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to log webhook"})
 		return
 	}
 
-	// Enqueue to Redis
-	if err := h.redisService.Enqueue(webhook); err != nil {
+	// Enqueue to Redis with log ID
+	if err := h.redisService.Enqueue(webhook, webhookID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enqueue webhook"})
 		return
 	}
 
 	// Update log status to queued
-	if err := h.pgService.UpdateWebhookStatus(webhook.Payload.OrderID, "queued", 0, nil); err != nil {
+	if err := h.pgService.UpdateWebhookStatus(webhookID, "queued", 0, nil); err != nil {
 		// Log error but don't fail the request
+		stdlog.Printf("Failed to update webhook status to queued for order_id=%s, webhook_id=%d: %v", webhook.Payload.OrderID, webhookID, err)
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{
@@ -94,17 +97,21 @@ func (h *WebhookHandler) HandleBatchWebhook(c *gin.Context) {
 			ReceivedAt: time.Now(),
 		}
 
-		if err := h.pgService.LogWebhook(log, webhook); err != nil {
+		webhookID, err := h.pgService.LogWebhook(log, webhook)
+		if err != nil {
 			failedCount++
 			continue
 		}
 
-		if err := h.redisService.Enqueue(webhook); err != nil {
+		if err := h.redisService.Enqueue(webhook, webhookID); err != nil {
 			failedCount++
 			continue
 		}
 
-		h.pgService.UpdateWebhookStatus(webhook.Payload.OrderID, "queued", 0, nil)
+		if err := h.pgService.UpdateWebhookStatus(webhookID, "queued", 0, nil); err != nil {
+			// Log error but don't fail the request
+			stdlog.Printf("Failed to update webhook status to queued for order_id=%s, webhook_id=%d: %v", webhook.Payload.OrderID, webhookID, err)
+		}
 		successCount++
 		orderIDs = append(orderIDs, webhook.Payload.OrderID)
 	}

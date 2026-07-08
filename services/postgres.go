@@ -57,11 +57,11 @@ func (p *PostgresService) InitSchema() error {
 	return err
 }
 
-// LogWebhook records webhook processing
-func (p *PostgresService) LogWebhook(log models.WebhookLog, webhook interface{}) error {
+// LogWebhook records webhook processing and returns the ID of the created record
+func (p *PostgresService) LogWebhook(log models.WebhookLog, webhook interface{}) (int64, error) {
 	payload, err := json.Marshal(webhook)
 	if err != nil {
-		return fmt.Errorf("failed to marshal webhook payload: %w", err)
+		return 0, fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
 
 	query := `
@@ -84,24 +84,22 @@ func (p *PostgresService) LogWebhook(log models.WebhookLog, webhook interface{})
 	).Scan(&id)
 
 	if err != nil {
-		return fmt.Errorf("failed to insert webhook log: %w", err)
+		return 0, fmt.Errorf("failed to insert webhook log: %w", err)
 	}
 
-	return nil
+	return id, nil
 }
 
-// UpdateWebhookStatus updates webhook processing status
-func (p *PostgresService) UpdateWebhookStatus(orderID string, status string, retries int, errorMsg *string) error {
+// UpdateWebhookStatus updates webhook processing status by ID
+func (p *PostgresService) UpdateWebhookStatus(id int64, status string, retries int, errorMsg *string) error {
 	query := `
 	UPDATE webhook_logs
 	SET status = $1, retries = $2, error_msg = $3, processed_at = $4
-	WHERE order_id = $5
-	ORDER BY received_at DESC
-	LIMIT 1
+	WHERE id = $5
 	`
 
 	now := time.Now()
-	_, err := p.db.Exec(query, status, retries, errorMsg, &now, orderID)
+	_, err := p.db.Exec(query, status, retries, errorMsg, &now, id)
 	return err
 }
 

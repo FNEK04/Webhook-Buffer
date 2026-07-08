@@ -50,4 +50,5 @@ type QueueItem struct {
 	Webhook  Webhook `json:"webhook"`
 	Attempts int     `json:"attempts"`
 	Received time.Time `json:"received"`
+	LogID    int64    `json:"log_id"`
 }

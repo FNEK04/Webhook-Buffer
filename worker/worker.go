@@ -80,19 +80,19 @@ func (w *Worker) processBatch() {
 			// Re-queue if retries not exhausted
 			if queueItem.Attempts < w.maxRetries {
 				queueItem.Attempts++
-				if err := w.redisService.Enqueue(queueItem.Webhook); err != nil {
+				if err := w.redisService.Enqueue(queueItem.Webhook, queueItem.LogID); err != nil {
 					log.Printf("Failed to re-queue webhook %s: %v", queueItem.Webhook.Payload.OrderID, err)
 				}
 				
 				errorMsg := err.Error()
-				w.pgService.UpdateWebhookStatus(queueItem.Webhook.Payload.OrderID, "failed", queueItem.Attempts, &errorMsg)
+				w.pgService.UpdateWebhookStatus(queueItem.LogID, "failed", queueItem.Attempts, &errorMsg)
 			} else {
 				errorMsg := fmt.Sprintf("Max retries (%d) exceeded: %v", w.maxRetries, err)
-				w.pgService.UpdateWebhookStatus(queueItem.Webhook.Payload.OrderID, "failed", queueItem.Attempts, &errorMsg)
+				w.pgService.UpdateWebhookStatus(queueItem.LogID, "failed", queueItem.Attempts, &errorMsg)
 			}
 		} else {
 			processed++
-			w.pgService.UpdateWebhookStatus(queueItem.Webhook.Payload.OrderID, "processed", queueItem.Attempts, nil)
+			w.pgService.UpdateWebhookStatus(queueItem.LogID, "processed", queueItem.Attempts, nil)
 		}
 	}
 

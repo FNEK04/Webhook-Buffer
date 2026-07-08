@@ -37,12 +37,16 @@ func (r *RedisService) Close() error {
 	return r.client.Close()
 }
 
-// Enqueue adds webhook to the queue
-func (r *RedisService) Enqueue(webhook models.Webhook) error {
+// Enqueue adds webhook to the queue with optional log ID
+func (r *RedisService) Enqueue(webhook models.Webhook, logID ...int64) error {
 	queueItem := models.QueueItem{
 		Webhook:  webhook,
 		Attempts: 0,
 		Received: time.Now(),
+	}
+	
+	if len(logID) > 0 {
+		queueItem.LogID = logID[0]
 	}
 
 	data, err := json.Marshal(queueItem)
