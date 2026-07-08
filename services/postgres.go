@@ -132,10 +132,10 @@ func (p *PostgresService) GetStats() (map[string]int64, error) {
 	return stats, nil
 }
 
-// GetFailedWebhooks returns webhooks that failed processing
+// GetFailedWebhooks returns webhooks that failed processing with their payloads
 func (p *PostgresService) GetFailedWebhooks(limit int) ([]models.WebhookLog, error) {
 	query := `
-	SELECT id, order_id, event, status, retries, received_at, processed_at, error_msg
+	SELECT id, order_id, event, status, retries, received_at, processed_at, error_msg, payload
 	FROM webhook_logs
 	WHERE status = 'failed' AND retries < 5
 	ORDER BY received_at ASC
@@ -151,6 +151,7 @@ func (p *PostgresService) GetFailedWebhooks(limit int) ([]models.WebhookLog, err
 	var logs []models.WebhookLog
 	for rows.Next() {
 		var log models.WebhookLog
+		var payload []byte
 		err := rows.Scan(
 			&log.ID,
 			&log.OrderID,
@@ -160,10 +161,12 @@ func (p *PostgresService) GetFailedWebhooks(limit int) ([]models.WebhookLog, err
 			&log.ReceivedAt,
 			&log.ProcessedAt,
 			&log.ErrorMsg,
+			&payload,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan webhook log: %w", err)
 		}
+		log.Payload = payload
 		logs = append(logs, log)
 	}
 

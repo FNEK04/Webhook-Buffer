@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -134,9 +135,31 @@ func (w *Worker) RetryFailedWebhooks() {
 
 	log.Printf("Found %d failed webhooks to retry", len(failedLogs))
 
+	retriedCount := 0
 	for _, logEntry := range failedLogs {
-		// In a real implementation, you would need to store the full webhook payload
-		// and retrieve it from PostgreSQL. For now, this is a placeholder.
-		log.Printf("Would retry webhook %s (attempt %d)", logEntry.OrderID, logEntry.Retries+1)
+		// Deserialize webhook payload
+		var webhook models.Webhook
+		if err := json.Unmarshal(logEntry.Payload, &webhook); err != nil {
+			log.Printf("Failed to unmarshal webhook payload for order_id=%s: %v", logEntry.OrderID, err)
+			continue
+		}
+
+		// Re-enqueue with the same log ID
+		if err := w.redisService.Enqueue(webhook, logEntry.ID); err != nil {
+			log.Printf("Failed to re-queue webhook %s: %v", logEntry.OrderID, err)
+			continue
+		}
+
+		// Update status to queued
+		if err := w.pgService.UpdateWebhookStatus(logEntry.ID, "queued", logEntry.Retries, nil); err != nil {
+			log.Printf("Failed to update webhook status to queued for order_id=%s: %v", logEntry.OrderID, err)
+		}
+
+		retriedCount++
+		log.Printf("Successfully re-queued webhook %s (attempt %d)", logEntry.OrderID, logEntry.Retries+1)
+	}
+
+	if retriedCount > 0 {
+		log.Printf("Retried %d failed webhooks successfully", retriedCount)
 	}
 }

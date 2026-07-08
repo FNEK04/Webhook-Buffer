@@ -64,6 +64,15 @@ func main() {
 	// Start worker in background
 	go w.Start()
 
+	// Start retry failed webhooks ticker
+	retryTicker := time.NewTicker(5 * time.Minute)
+	defer retryTicker.Stop()
+	go func() {
+		for range retryTicker.C {
+			w.RetryFailedWebhooks()
+		}
+	}()
+
 	// Set up Gin router
 	if cfg.Server.Port == "" {
 		gin.SetMode(gin.ReleaseMode)

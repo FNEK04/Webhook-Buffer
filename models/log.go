@@ -12,6 +12,7 @@ type WebhookLog struct {
 	ReceivedAt  time.Time `json:"received_at"`
 	ProcessedAt *time.Time `json:"processed_at,omitempty"`
 	ErrorMsg    *string   `json:"error_msg,omitempty"`
+	Payload     []byte    `json:"payload,omitempty"` // JSONB payload for retry
 }
 
 // InventoryCache represents cached inventory data
