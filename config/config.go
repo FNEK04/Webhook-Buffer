@@ -19,6 +19,7 @@ type ServerConfig struct {
 	Port         string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
+	AppEnv       string // development or production
 }
 
 type RedisConfig struct {
@@ -51,6 +52,7 @@ func Load() (*Config, error) {
 			Port:         getEnv("SERVER_PORT", "8080"),
 			ReadTimeout:  getDurationEnv("SERVER_READ_TIMEOUT", "10s"),
 			WriteTimeout: getDurationEnv("SERVER_WRITE_TIMEOUT", "10s"),
+			AppEnv:       getEnv("APP_ENV", "development"),
 		},
 		Redis: RedisConfig{
 			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),

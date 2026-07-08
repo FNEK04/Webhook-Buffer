@@ -73,8 +73,8 @@ func main() {
 		}
 	}()
 
-	// Set up Gin router
-	if cfg.Server.Port == "" {
+	// Set up Gin router based on environment
+	if cfg.Server.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
