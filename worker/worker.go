@@ -1,9 +1,11 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"webhook-buffer/models"
@@ -11,18 +13,19 @@ import (
 )
 
 type Worker struct {
-	redisService *services.RedisService
-	pgService    *services.PostgresService
+	redisService services.QueueService
+	pgService    services.LogService
 	client1C     *services.Client1C
 	batchSize    int
 	pollInterval time.Duration
 	maxRetries   int
 	stopChan     chan struct{}
+	processing   atomic.Bool
 }
 
 func NewWorker(
-	redisService *services.RedisService,
-	pgService *services.PostgresService,
+	redisService services.QueueService,
+	pgService services.LogService,
 	client1C *services.Client1C,
 	batchSize int,
 	pollInterval time.Duration,
@@ -39,14 +42,13 @@ func NewWorker(
 	}
 }
 
-// Start begins processing webhooks from the queue
 func (w *Worker) Start() {
-	log.Println("Worker started, processing webhooks...")
+	slog.Info("worker started", "batch_size", w.batchSize, "poll_interval", w.pollInterval)
 
 	for {
 		select {
 		case <-w.stopChan:
-			log.Println("Worker stopping...")
+			slog.Info("worker stopping")
 			return
 		default:
 			w.processBatch()
@@ -54,112 +56,137 @@ func (w *Worker) Start() {
 	}
 }
 
-// Stop gracefully stops the worker
 func (w *Worker) Stop() {
+	slog.Info("worker stopping...")
 	close(w.stopChan)
+	w.client1C.StopHealthCheck()
 }
 
-// processBatch processes a batch of webhooks from the queue
 func (w *Worker) processBatch() {
+	w.processing.Store(true)
+	defer w.processing.Store(false)
+
 	processed := 0
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
 	for i := 0; i < w.batchSize; i++ {
-		queueItem, err := w.redisService.Dequeue(w.pollInterval)
+		select {
+		case <-w.stopChan:
+			cancel()
+			return
+		default:
+		}
+
+		queueItem, err := w.redisService.Dequeue(ctx, w.pollInterval)
 		if err != nil {
-			log.Printf("Error dequeuing: %v", err)
+			slog.Error("error dequeuing", "error", err)
 			continue
 		}
 
 		if queueItem == nil {
-			// No items in queue, wait before next poll
 			break
 		}
 
-		if err := w.processWebhook(queueItem); err != nil {
-			log.Printf("Error processing webhook %s: %v", queueItem.Webhook.Payload.OrderID, err)
-			
-			// Re-queue if retries not exhausted
+		if err := w.processWebhook(ctx, queueItem); err != nil {
+			slog.Error("error processing webhook",
+				"order_id", queueItem.Webhook.Payload.OrderID,
+				"error", err,
+			)
+
 			if queueItem.Attempts < w.maxRetries {
 				queueItem.Attempts++
-				if err := w.redisService.Enqueue(queueItem.Webhook, queueItem.LogID); err != nil {
-					log.Printf("Failed to re-queue webhook %s: %v", queueItem.Webhook.Payload.OrderID, err)
+				if err := w.redisService.Enqueue(ctx, queueItem.Webhook, queueItem.LogID); err != nil {
+					slog.Error("failed to re-queue webhook",
+						"order_id", queueItem.Webhook.Payload.OrderID,
+						"error", err,
+					)
 				}
-				
 				errorMsg := err.Error()
-				w.pgService.UpdateWebhookStatus(queueItem.LogID, "failed", queueItem.Attempts, &errorMsg)
+				_ = w.pgService.UpdateWebhookStatus(ctx, queueItem.LogID, "failed", queueItem.Attempts, &errorMsg)
 			} else {
-				errorMsg := fmt.Sprintf("Max retries (%d) exceeded: %v", w.maxRetries, err)
-				w.pgService.UpdateWebhookStatus(queueItem.LogID, "failed", queueItem.Attempts, &errorMsg)
+				slog.Warn("max retries exceeded, moving to dead letter",
+					"order_id", queueItem.Webhook.Payload.OrderID,
+					"attempts", queueItem.Attempts,
+				)
+				errorMsg := fmt.Sprintf("max retries (%d) exceeded: %v", w.maxRetries, err)
+				_ = w.pgService.UpdateWebhookStatus(ctx, queueItem.LogID, "dead_letter", queueItem.Attempts, &errorMsg)
+				_ = w.pgService.MoveToDeadLetter(ctx, queueItem.LogID)
 			}
 		} else {
 			processed++
-			w.pgService.UpdateWebhookStatus(queueItem.LogID, "processed", queueItem.Attempts, nil)
+			_ = w.pgService.UpdateWebhookStatus(ctx, queueItem.LogID, "processed", queueItem.Attempts, nil)
 		}
 	}
 
+	cancel()
+
 	if processed > 0 {
-		log.Printf("Processed %d webhooks successfully", processed)
+		slog.Info("batch processed", "count", processed)
 	}
 }
 
-// processWebhook sends a single webhook to 1C
-func (w *Worker) processWebhook(queueItem *models.QueueItem) error {
-	// Check 1C health before sending
-	if err := w.client1C.HealthCheck(); err != nil {
-		return fmt.Errorf("1C health check failed: %w", err)
+func (w *Worker) processWebhook(ctx context.Context, queueItem *models.QueueItem) error {
+	if !w.client1C.IsHealthy() {
+		return fmt.Errorf("1C is not healthy, skipping")
 	}
 
-	// Send to 1C
-	if err := w.client1C.SendOrder(queueItem.Webhook); err != nil {
+	if err := w.client1C.SendOrder(ctx, queueItem.Webhook); err != nil {
 		return fmt.Errorf("failed to send order to 1C: %w", err)
 	}
 
-	log.Printf("Successfully sent order %s to 1C", queueItem.Webhook.Payload.OrderID)
+	slog.Info("successfully sent order to 1C", "order_id", queueItem.Webhook.Payload.OrderID)
 	return nil
 }
 
-// RetryFailedWebhooks processes webhooks that previously failed
 func (w *Worker) RetryFailedWebhooks() {
-	log.Println("Checking for failed webhooks to retry...")
+	slog.Info("checking for failed webhooks to retry...")
 
-	failedLogs, err := w.pgService.GetFailedWebhooks(50)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	failedLogs, err := w.pgService.GetFailedWebhooks(ctx, 50, w.maxRetries)
 	if err != nil {
-		log.Printf("Error getting failed webhooks: %v", err)
+		slog.Error("error getting failed webhooks", "error", err)
 		return
 	}
 
 	if len(failedLogs) == 0 {
-		log.Println("No failed webhooks to retry")
+		slog.Info("no failed webhooks to retry")
 		return
 	}
 
-	log.Printf("Found %d failed webhooks to retry", len(failedLogs))
+	slog.Info("found failed webhooks to retry", "count", len(failedLogs))
 
 	retriedCount := 0
 	for _, logEntry := range failedLogs {
-		// Deserialize webhook payload
 		var webhook models.Webhook
 		if err := json.Unmarshal(logEntry.Payload, &webhook); err != nil {
-			log.Printf("Failed to unmarshal webhook payload for order_id=%s: %v", logEntry.OrderID, err)
+			slog.Error("failed to unmarshal webhook payload",
+				"order_id", logEntry.OrderID,
+				"error", err,
+			)
 			continue
 		}
 
-		// Re-enqueue with the same log ID
-		if err := w.redisService.Enqueue(webhook, logEntry.ID); err != nil {
-			log.Printf("Failed to re-queue webhook %s: %v", logEntry.OrderID, err)
+		if err := w.redisService.Enqueue(ctx, webhook, logEntry.ID); err != nil {
+			slog.Error("failed to re-queue webhook",
+				"order_id", logEntry.OrderID,
+				"error", err,
+			)
 			continue
 		}
 
-		// Update status to queued
-		if err := w.pgService.UpdateWebhookStatus(logEntry.ID, "queued", logEntry.Retries, nil); err != nil {
-			log.Printf("Failed to update webhook status to queued for order_id=%s: %v", logEntry.OrderID, err)
+		if err := w.pgService.UpdateWebhookStatus(ctx, logEntry.ID, "queued", logEntry.Retries, nil); err != nil {
+			slog.Error("failed to update webhook status",
+				"order_id", logEntry.OrderID,
+				"error", err,
+			)
 		}
 
 		retriedCount++
-		log.Printf("Successfully re-queued webhook %s (attempt %d)", logEntry.OrderID, logEntry.Retries+1)
 	}
 
 	if retriedCount > 0 {
-		log.Printf("Retried %d failed webhooks successfully", retriedCount)
+		slog.Info("retried failed webhooks", "count", retriedCount)
 	}
 }

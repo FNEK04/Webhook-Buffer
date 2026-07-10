@@ -1,21 +1,25 @@
 package services
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"webhook-buffer/models"
 )
 
-// TestRedisService_Enqueue_Dequeue tests enqueue and dequeue operations
-// Note: These tests require a running Redis instance
-// Integration tests should be run with: go test -tags=integration
 func TestRedisService_Enqueue_Dequeue(t *testing.T) {
 	t.Skip("Skipping integration test - requires Redis instance")
-	
+
 	redisService := NewRedisService("localhost:6379", "", 0)
 	defer redisService.Close()
-	
+
+	ctx := context.Background()
+
+	if err := redisService.Ping(ctx); err != nil {
+		t.Fatalf("Failed to ping Redis: %v", err)
+	}
+
 	webhook := models.Webhook{
 		Event:     "order.created",
 		Timestamp: time.Now(),
@@ -47,21 +51,21 @@ func TestRedisService_Enqueue_Dequeue(t *testing.T) {
 			TotalAmount: 100,
 		},
 	}
-	
-	err := redisService.Enqueue(webhook)
+
+	err := redisService.Enqueue(ctx, webhook)
 	if err != nil {
 		t.Fatalf("Failed to enqueue: %v", err)
 	}
-	
-	item, err := redisService.Dequeue(1 * time.Second)
+
+	item, err := redisService.Dequeue(ctx, 1*time.Second)
 	if err != nil {
 		t.Fatalf("Failed to dequeue: %v", err)
 	}
-	
+
 	if item == nil {
 		t.Fatal("Expected item, got nil")
 	}
-	
+
 	if item.Webhook.Payload.OrderID != "TEST-001" {
 		t.Errorf("Expected order ID TEST-001, got %s", item.Webhook.Payload.OrderID)
 	}
@@ -69,51 +73,53 @@ func TestRedisService_Enqueue_Dequeue(t *testing.T) {
 
 func TestRedisService_CacheOperations(t *testing.T) {
 	t.Skip("Skipping integration test - requires Redis instance")
-	
+
 	redisService := NewRedisService("localhost:6379", "", 0)
 	defer redisService.Close()
-	
+
+	ctx := context.Background()
+
 	sku := "SKU-TEST-001"
 	quantity := 100
 	price := 9.99
 	ttl := 5 * time.Minute
-	
-	err := redisService.CacheInventory(sku, quantity, price, ttl)
+
+	err := redisService.CacheInventory(ctx, sku, quantity, price, ttl)
 	if err != nil {
 		t.Fatalf("Failed to cache inventory: %v", err)
 	}
-	
-	cached, err := redisService.GetInventory(sku)
+
+	cached, err := redisService.GetInventory(ctx, sku)
 	if err != nil {
 		t.Fatalf("Failed to get cached inventory: %v", err)
 	}
-	
+
 	if cached == nil {
 		t.Fatal("Expected cached item, got nil")
 	}
-	
+
 	if cached.SKU != sku {
 		t.Errorf("Expected SKU %s, got %s", sku, cached.SKU)
 	}
-	
+
 	if cached.Quantity != quantity {
 		t.Errorf("Expected quantity %d, got %d", quantity, cached.Quantity)
 	}
-	
+
 	if cached.Price != price {
 		t.Errorf("Expected price %f, got %f", price, cached.Price)
 	}
-	
-	err = redisService.InvalidateCache(sku)
+
+	err = redisService.InvalidateCache(ctx, sku)
 	if err != nil {
 		t.Fatalf("Failed to invalidate cache: %v", err)
 	}
-	
-	cached, err = redisService.GetInventory(sku)
+
+	cached, err = redisService.GetInventory(ctx, sku)
 	if err != nil {
 		t.Fatalf("Failed to get inventory after invalidation: %v", err)
 	}
-	
+
 	if cached != nil {
 		t.Error("Expected nil after cache invalidation, got item")
 	}

@@ -3,43 +3,51 @@ services:
     build: .
     ports:
       - "8080:8080"
-    environment:
-      - SERVER_PORT=8080
-      - REDIS_ADDR=redis:6379
-      - REDIS_PASSWORD=
-      - REDIS_DB=0
-      - POSTGRES_CONN_STRING=postgres://webhook:webhook123@postgres:5432/webhook_buffer?sslmode=disable
-      - ONEC_BASE_URL=http://onec:8081
-      - ONEC_USERNAME=admin
-      - ONEC_PASSWORD=password
-      - WORKER_BATCH_SIZE=10
-      - WORKER_POLL_INTERVAL=1s
-      - WORKER_MAX_RETRIES=5
-      - WORKER_CACHE_TTL=5m
+    env_file:
+      - .env
     depends_on:
-      - redis
-      - postgres
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   redis:
-    image: redis:6-alpine
+    image: redis:7-alpine
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   postgres:
-    image: postgres:14-alpine
+    image: postgres:16-alpine
     ports:
       - "5432:5432"
+    env_file:
+      - .env
     environment:
-      - POSTGRES_DB=webhook_buffer
-      - POSTGRES_USER=webhook
-      - POSTGRES_PASSWORD=webhook123
+      POSTGRES_DB: webhook_buffer
+      POSTGRES_USER: webhook
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhook -d webhook_buffer"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
 volumes:
   redis_data:

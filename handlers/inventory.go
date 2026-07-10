@@ -10,12 +10,12 @@ import (
 )
 
 type InventoryHandler struct {
-	redisService *services.RedisService
-	client1C     *services.Client1C
+	redisService services.InventoryCacheService
+	client1C     services.OrderService
 	cacheTTL     time.Duration
 }
 
-func NewInventoryHandler(redisService *services.RedisService, client1C *services.Client1C, cacheTTL time.Duration) *InventoryHandler {
+func NewInventoryHandler(redisService services.InventoryCacheService, client1C services.OrderService, cacheTTL time.Duration) *InventoryHandler {
 	return &InventoryHandler{
 		redisService: redisService,
 		client1C:     client1C,
@@ -23,7 +23,6 @@ func NewInventoryHandler(redisService *services.RedisService, client1C *services
 	}
 }
 
-// GetInventory retrieves inventory data with cache fallback
 func (h *InventoryHandler) GetInventory(c *gin.Context) {
 	sku := c.Param("sku")
 	if sku == "" {
@@ -31,8 +30,9 @@ func (h *InventoryHandler) GetInventory(c *gin.Context) {
 		return
 	}
 
-	// Try to get from cache first
-	cached, err := h.redisService.GetInventory(sku)
+	ctx := c.Request.Context()
+
+	cached, err := h.redisService.GetInventory(ctx, sku)
 	if err == nil && cached != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"sku":      cached.SKU,
@@ -43,18 +43,16 @@ func (h *InventoryHandler) GetInventory(c *gin.Context) {
 		return
 	}
 
-	// Cache miss - fetch from 1C
-	inventory, err := h.client1C.GetInventory(sku)
+	inventory, err := h.client1C.GetInventory(ctx, sku)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "Failed to fetch inventory from 1C",
+			"error":   "Failed to fetch inventory from 1C",
 			"details": err.Error(),
 		})
 		return
 	}
 
-	// Cache the result
-	h.redisService.CacheInventory(inventory.SKU, inventory.Quantity, inventory.Price, h.cacheTTL)
+	_ = h.redisService.CacheInventory(ctx, inventory.SKU, inventory.Quantity, inventory.Price, h.cacheTTL)
 
 	c.JSON(http.StatusOK, gin.H{
 		"sku":      inventory.SKU,
@@ -64,7 +62,6 @@ func (h *InventoryHandler) GetInventory(c *gin.Context) {
 	})
 }
 
-// InvalidateCache removes inventory from cache
 func (h *InventoryHandler) InvalidateCache(c *gin.Context) {
 	sku := c.Param("sku")
 	if sku == "" {
@@ -72,7 +69,9 @@ func (h *InventoryHandler) InvalidateCache(c *gin.Context) {
 		return
 	}
 
-	if err := h.redisService.InvalidateCache(sku); err != nil {
+	ctx := c.Request.Context()
+
+	if err := h.redisService.InvalidateCache(ctx, sku); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate cache"})
 		return
 	}

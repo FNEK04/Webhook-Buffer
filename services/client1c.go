@@ -2,10 +2,13 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"webhook-buffer/models"
@@ -17,22 +20,74 @@ type Client1C struct {
 	password   string
 	httpClient *http.Client
 	timeout    time.Duration
+
+	mu          sync.RWMutex
+	healthy     bool
+	lastCheck   time.Time
+	checkEvery  time.Duration
+	stopCheck   chan struct{}
 }
 
 func NewClient1C(baseURL, username, password string, timeout time.Duration) *Client1C {
-	return &Client1C{
-		baseURL:  baseURL,
-		username: username,
-		password: password,
+	c := &Client1C{
+		baseURL:   baseURL,
+		username:  username,
+		password:  password,
+		timeout:   timeout,
+		checkEvery: 30 * time.Second,
+		stopCheck:  make(chan struct{}),
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		timeout: timeout,
+	}
+
+	c.mu.Lock()
+	c.healthy = true
+	c.lastCheck = time.Now()
+	c.mu.Unlock()
+
+	go c.periodicHealthCheck()
+
+	return c
+}
+
+func (c *Client1C) periodicHealthCheck() {
+	ticker := time.NewTicker(c.checkEvery)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.stopCheck:
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+			err := c.HealthCheck(ctx)
+			cancel()
+			c.mu.Lock()
+			c.healthy = (err == nil)
+			c.lastCheck = time.Now()
+			c.mu.Unlock()
+
+			if err != nil {
+				slog.Warn("1C health check failed", "error", err)
+			} else {
+				slog.Debug("1C health check passed")
+			}
+		}
 	}
 }
 
-// SendOrder sends order data to 1C via REST API
-func (c *Client1C) SendOrder(webhook models.Webhook) error {
+func (c *Client1C) IsHealthy() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.healthy
+}
+
+func (c *Client1C) StopHealthCheck() {
+	close(c.stopCheck)
+}
+
+func (c *Client1C) SendOrder(ctx context.Context, webhook models.Webhook) error {
 	url := fmt.Sprintf("%s/hs/webhook/orders", c.baseURL)
 
 	payload, err := json.Marshal(webhook)
@@ -40,7 +95,7 @@ func (c *Client1C) SendOrder(webhook models.Webhook) error {
 		return fmt.Errorf("failed to marshal webhook: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -63,11 +118,10 @@ func (c *Client1C) SendOrder(webhook models.Webhook) error {
 	return nil
 }
 
-// GetInventory retrieves inventory data from 1C
-func (c *Client1C) GetInventory(sku string) (*models.InventoryCache, error) {
+func (c *Client1C) GetInventory(ctx context.Context, sku string) (*models.InventoryCache, error) {
 	url := fmt.Sprintf("%s/hs/webhook/inventory/%s", c.baseURL, sku)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -104,11 +158,10 @@ func (c *Client1C) GetInventory(sku string) (*models.InventoryCache, error) {
 	}, nil
 }
 
-// HealthCheck checks if 1C service is available
-func (c *Client1C) HealthCheck() error {
+func (c *Client1C) HealthCheck(ctx context.Context) error {
 	url := fmt.Sprintf("%s/hs/webhook/health", c.baseURL)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

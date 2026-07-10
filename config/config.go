@@ -13,13 +13,14 @@ type Config struct {
 	Postgres PostgresConfig
 	OneC     OneCConfig
 	Worker   WorkerConfig
+	Security SecurityConfig
 }
 
 type ServerConfig struct {
 	Port         string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
-	AppEnv       string // development or production
+	AppEnv       string
 }
 
 type RedisConfig struct {
@@ -40,10 +41,17 @@ type OneCConfig struct {
 }
 
 type WorkerConfig struct {
-	BatchSize    int
-	PollInterval time.Duration
-	MaxRetries   int
-	CacheTTL     time.Duration
+	BatchSize     int
+	PollInterval  time.Duration
+	MaxRetries    int
+	CacheTTL      time.Duration
+	QueueMaxSize  int64
+}
+
+type SecurityConfig struct {
+	APIKey         string
+	RateLimitRPS   float64
+	RateLimitBurst int
 }
 
 func Load() (*Config, error) {
@@ -73,6 +81,12 @@ func Load() (*Config, error) {
 			PollInterval: getDurationEnv("WORKER_POLL_INTERVAL", "1s"),
 			MaxRetries:   getIntEnv("WORKER_MAX_RETRIES", 5),
 			CacheTTL:     getDurationEnv("WORKER_CACHE_TTL", "5m"),
+			QueueMaxSize: getInt64Env("WORKER_QUEUE_MAX_SIZE", 100000),
+		},
+		Security: SecurityConfig{
+			APIKey:         getEnv("API_KEY", ""),
+			RateLimitRPS:   getFloatEnv("RATE_LIMIT_RPS", 1000),
+			RateLimitBurst: getIntEnv("RATE_LIMIT_BURST", 2000),
 		},
 	}
 
@@ -90,6 +104,24 @@ func getIntEnv(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intVal, err := strconv.Atoi(value); err == nil {
 			return intVal
+		}
+	}
+	return defaultValue
+}
+
+func getInt64Env(key string, defaultValue int64) int64 {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
+}
+
+func getFloatEnv(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if fVal, err := strconv.ParseFloat(value, 64); err == nil {
+			return fVal
 		}
 	}
 	return defaultValue

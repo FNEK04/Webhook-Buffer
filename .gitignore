@@ -11,6 +11,10 @@ webhook-buffer
 
 # Output of the go coverage tool
 *.out
+*.html
+
+# Build output
+bin/
 
 # Dependency directories
 vendor/

@@ -1,0 +1,57 @@
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - contextcheck
+    - durationcheck
+    - errname
+    - errorlint
+    - exportloopref
+    - goconst
+    - gocritic
+    - gofmt
+    - goimports
+    - gosec
+    - misspell
+    - nilerr
+    - prealloc
+    - predeclared
+    - unconvert
+    - unparam
+    - whitespace
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+  gosec:
+    excludes:
+      - G104
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+        - gocritic
+    - path: mocks/
+      linters:
+        - gosec
+        - errcheck
+        - unparam
+        - goconst
